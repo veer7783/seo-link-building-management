@@ -1,0 +1,568 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  IN_PROGRESS
+  CONTENT_READY
+  PLACED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum GuestBlogOrderStatus {
+  ACTIVE
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ContentStatus {
+  BRIEF_CREATED
+  DRAFT_IN_PROGRESS
+  DRAFT_READY
+  QA_IN_PROGRESS
+  QA_APPROVED
+  FINAL_READY
+}
+
+enum PlacementStatus {
+  PENDING
+  LIVE
+  REMOVED
+  FAILED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum Currency {
+  USD
+  EUR
+  GBP
+  INR
+}
+
+enum AnchorType {
+  EXACT_MATCH
+  PARTIAL_MATCH
+  BRANDED
+  GENERIC
+  NAKED_URL
+}
+
+enum PublisherCommunicationMode {
+  EMAIL
+  WHATSAPP
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  role      UserRole @default(ADMIN)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  createdClients          Client[]              @relation("CreatedBy")
+  createdProjects         Project[]             @relation("CreatedBy")
+  createdOrders           Order[]               @relation("CreatedBy")
+  createdPublishers       Publisher[]           @relation("CreatedBy")
+  createdClientSiteOverrides ClientSiteOverride[] @relation("ClientSiteOverrideCreatedBy")
+  createdClientGuestBlogSiteOverrides ClientGuestBlogSiteOverride[] @relation("ClientGuestBlogSiteOverrideCreatedBy")
+  createdGuestBlogOrders  GuestBlogOrder[]      @relation("GuestBlogOrderCreatedBy")
+  createdGuestBlogPlacements GuestBlogPlacement[] @relation("PlacementCreatedBy")
+  auditLogs               AuditLog[]
+
+  @@map("users")
+}
+
+model Client {
+  id            String   @id @default(uuid())
+  name          String
+  email         String   @unique
+  phone         String?
+  company       String?
+  country       String?
+  address       String?
+  billingEmail  String?
+  currency      Currency @default(USD)
+  percentage    Int      @default(10) // Percentage markup for guest blog sites (minimum 10)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdById   String
+  createdBy     User     @relation("CreatedBy", fields: [createdById], references: [id])
+
+  // Relationships
+  projects          Project[]
+  invoices          Invoice[]
+  clientSiteOverrides ClientSiteOverride[] // Manual price overrides for specific sites
+  clientGuestBlogSiteOverrides ClientGuestBlogSiteOverride[] @relation("ClientGuestBlogSiteOverrides") // Manual price overrides for guest blog sites
+  guestBlogOrders   GuestBlogOrder[] @relation("GuestBlogOrders") // Guest blog orders for this client
+  guestBlogPlacements GuestBlogPlacement[] @relation("ClientPlacements") // Guest blog placements for this client
+
+  @@map("clients")
+}
+
+model Project {
+  id           String   @id @default(uuid())
+  projectName  String
+  websiteUrl   String?
+  companyName  String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  clientId     String
+  client       Client   @relation(fields: [clientId], references: [id])
+  createdById  String
+  createdBy    User     @relation("CreatedBy", fields: [createdById], references: [id])
+
+  // Relationships
+  orders Order[]
+  guestBlogOrders GuestBlogOrder[] @relation("GuestBlogOrderProjects")
+  guestBlogPlacements GuestBlogPlacement[] @relation("GuestBlogPlacementProjects")
+
+  @@map("projects")
+}
+
+model Publisher {
+  id                   String                    @id @default(uuid())
+  publisherName        String                    // Updated field name as per requirements
+  email                String?                   // Email address (optional)
+  whatsapp             String?                   // WhatsApp number (optional)
+  modeOfCommunication  PublisherCommunicationMode @default(EMAIL) // Preferred communication method
+  isActive             Boolean                   @default(true)
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  createdById          String
+  createdBy            User                      @relation("CreatedBy", fields: [createdById], references: [id])
+
+  // Relationships
+  sites           Site[]
+  publisherBills  PublisherBill[]
+  guestBlogSites  GuestBlogSite[] @relation("GuestBlogSitePublisher")
+
+  @@map("publishers")
+}
+
+model Site {
+  id             String   @id @default(uuid())
+  domain         String   @unique // Site URL
+  domainAuthority Int // DA (Domain Authority)
+  domainRating   Int // DR (Domain Rating)
+  monthlyTraffic Int // Ahrefs Traffic
+  spamScore      Int? // SS (Spam Score)
+  turnaroundTime String // TAT (Turnaround Time) - changed to String to support text values
+  category       String
+  language       String   @default("en") // Site Language
+  country        String
+  basePrice      Decimal  @db.Decimal(8, 2) // Base Price stored in DB
+  internalCost   Decimal  @db.Decimal(8, 2) // Internal cost
+  isActive       Boolean  @default(true) // Status
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  publisherId    String
+  publisher      Publisher @relation(fields: [publisherId], references: [id])
+
+  // Relationships
+  orderSites          OrderSite[]
+  clientSiteOverrides ClientSiteOverride[] // Manual price overrides for specific clients
+
+  @@map("sites")
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  orderNumber     String      @unique
+  status          OrderStatus @default(DRAFT)
+  totalAmount     Decimal     @db.Decimal(10, 2)
+  totalCost       Decimal     @db.Decimal(10, 2)
+  targetUrl       String
+  anchorText      String
+  anchorType      AnchorType
+  deadline        DateTime?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  projectId       String
+  project         Project     @relation(fields: [projectId], references: [id])
+  createdById     String
+  createdBy       User        @relation("CreatedBy", fields: [createdById], references: [id])
+
+  // Relationships
+  orderSites OrderSite[]
+  content    Content?
+  invoices   InvoiceItem[]
+
+  @@map("orders")
+}
+
+model OrderSite {
+  id        String   @id @default(uuid())
+  price     Decimal  @db.Decimal(8, 2)
+  cost      Decimal  @db.Decimal(8, 2)
+  createdAt DateTime @default(now())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id])
+
+  // Relationships
+  placement Placement?
+
+  @@unique([orderId, siteId])
+  @@map("order_sites")
+}
+
+model Content {
+  id              String        @id @default(uuid())
+  status          ContentStatus @default(BRIEF_CREATED)
+  brief           String?
+  draftContent    String?
+  finalContent    String?
+  wordCount       Int?
+  plagiarismScore Float?
+  aiScore         Float?
+  qaFeedback      String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  orderId         String        @unique
+  order           Order         @relation(fields: [orderId], references: [id])
+
+  // Relationships
+  files ContentFile[]
+
+  @@map("content")
+}
+
+model ContentFile {
+  id        String   @id @default(uuid())
+  filename  String
+  filepath  String
+  filesize  Int
+  mimetype  String
+  createdAt DateTime @default(now())
+  contentId String
+  content   Content  @relation(fields: [contentId], references: [id])
+
+  @@map("content_files")
+}
+
+model Placement {
+  id           String          @id @default(uuid())
+  status       PlacementStatus @default(PENDING)
+  liveUrl      String?
+  placedAt     DateTime?
+  lastChecked  DateTime?
+  isLive       Boolean         @default(false)
+  checkCount   Int             @default(0)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  orderSiteId  String          @unique
+  orderSite    OrderSite       @relation(fields: [orderSiteId], references: [id])
+
+  // Relationships
+  linkHealthLogs LinkHealthLog[]
+
+  @@map("placements")
+}
+
+model LinkHealthLog {
+  id          String    @id @default(uuid())
+  isLive      Boolean
+  statusCode  Int?
+  responseTime Int? // in milliseconds
+  errorMessage String?
+  checkedAt   DateTime  @default(now())
+  placementId String
+  placement   Placement @relation(fields: [placementId], references: [id])
+
+  @@map("link_health_logs")
+}
+
+model Invoice {
+  id           String        @id @default(uuid())
+  invoiceNumber String       @unique
+  status       InvoiceStatus @default(DRAFT)
+  subtotal     Decimal       @db.Decimal(10, 2)
+  taxAmount    Decimal       @default(0) @db.Decimal(10, 2)
+  totalAmount  Decimal       @db.Decimal(10, 2)
+  currency     Currency      @default(USD)
+  dueDate      DateTime?
+  paidAt       DateTime?
+  sentAt       DateTime?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  clientId     String
+  client       Client        @relation(fields: [clientId], references: [id])
+
+  // Relationships
+  items InvoiceItem[]
+
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  description String
+  quantity    Int     @default(1)
+  unitPrice   Decimal @db.Decimal(8, 2)
+  totalPrice  Decimal @db.Decimal(8, 2)
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  orderId     String?
+  order       Order?  @relation(fields: [orderId], references: [id])
+
+  @@map("invoice_items")
+}
+
+model PublisherBill {
+  id           String        @id @default(uuid())
+  billNumber   String        @unique
+  status       InvoiceStatus @default(DRAFT)
+  totalAmount  Decimal       @db.Decimal(10, 2)
+  currency     Currency      @default(USD)
+  dueDate      DateTime?
+  paidAt       DateTime?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  publisherId  String
+  publisher    Publisher     @relation(fields: [publisherId], references: [id])
+
+  // Relationships
+  items PublisherBillItem[]
+
+  @@map("publisher_bills")
+}
+
+model PublisherBillItem {
+  id             String        @id @default(uuid())
+  description    String
+  quantity       Int           @default(1)
+  unitCost       Decimal       @db.Decimal(8, 2)
+  totalCost      Decimal       @db.Decimal(8, 2)
+  publisherBillId String
+  publisherBill  PublisherBill @relation(fields: [publisherBillId], references: [id])
+
+  @@map("publisher_bill_items")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  type      String // email, slack, in-app
+  recipient String
+  subject   String
+  message   String
+  isRead    Boolean  @default(false)
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     String // CREATE, UPDATE, DELETE
+  entity     String // table name
+  entityId   String
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model ClientSiteOverride {
+  id          String   @id @default(uuid())
+  clientId    String
+  siteId      String
+  overridePrice Decimal @db.Decimal(8, 2) // Manual price override for this client-site combination
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation("ClientSiteOverrideCreatedBy", fields: [createdById], references: [id])
+
+  // Relationships
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, siteId]) // One override per client-site combination
+  @@map("client_site_overrides")
+}
+
+enum GuestBlogSiteCategory {
+  BUSINESS_ENTREPRENEURSHIP
+  MARKETING_SEO
+  TECHNOLOGY_GADGETS
+  HEALTH_FITNESS
+  LIFESTYLE_WELLNESS
+  FINANCE_INVESTMENT
+  EDUCATION_CAREER
+  TRAVEL_TOURISM
+  FOOD_NUTRITION
+  REAL_ESTATE_HOME_IMPROVEMENT
+  AI_FUTURE_TECH
+  ECOMMERCE_STARTUPS
+  SUSTAINABILITY_GREEN_LIVING
+  PARENTING_RELATIONSHIPS
+  FASHION_BEAUTY
+  ENTERTAINMENT_MEDIA
+  SPORTS_FITNESS
+  GENERAL
+  OTHERS
+}
+
+enum GuestBlogSiteStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model GuestBlogSite {
+  id              String                        @id @default(cuid())
+  site_url        String                        @unique
+  da              Int
+  dr              Int
+  ahrefs_traffic  Int
+  ss              Int?
+  tat             String // Turnaround time
+  category        GuestBlogSiteCategory
+  status          GuestBlogSiteStatus           @default(ACTIVE)
+  base_price      Float                         // Base price (internal)
+  country         String
+  publisher_id    String
+  site_language   String                        @default("en")
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+
+  // Relations
+  publisher       Publisher                     @relation("GuestBlogSitePublisher", fields: [publisher_id], references: [id], onDelete: Cascade)
+  overrides       ClientGuestBlogSiteOverride[]
+  orders          GuestBlogOrder[]              @relation("GuestBlogOrders") // Orders for this guest blog site
+  placements      GuestBlogPlacement[]          @relation("SitePlacements") // Placements for this guest blog site
+
+  @@map("guest_blog_sites")
+}
+
+model ClientGuestBlogSiteOverride {
+  id          String   @id @default(uuid())
+  clientId    String
+  guestBlogSiteId String
+  overridePrice Decimal @db.Decimal(8, 2) // Manual price override for this client-site combination
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation("ClientGuestBlogSiteOverrideCreatedBy", fields: [createdById], references: [id])
+
+  // Relations
+  client Client @relation("ClientGuestBlogSiteOverrides", fields: [clientId], references: [id], onDelete: Cascade)
+  guestBlogSite GuestBlogSite @relation(fields: [guestBlogSiteId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, guestBlogSiteId]) // One override per client-site combination
+  @@map("client_guest_blog_site_overrides")
+}
+
+model GuestBlogOrder {
+  id                String                @id @default(uuid())
+  orderId           String                @unique // Human-readable order ID (e.g., GBO-2024-001)
+  clientId          String
+  projectId         String                // Added project reference
+  guestBlogSiteId   String
+  price             Float                 // Applied override price
+  contentText       String?               // Content field from popup
+  contentDocUrl     String?               // Uploaded document URL
+  status            GuestBlogOrderStatus  @default(ACTIVE)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  createdById       String
+  
+  // Relations
+  client            Client                @relation("GuestBlogOrders", fields: [clientId], references: [id], onDelete: Cascade)
+  project           Project               @relation("GuestBlogOrderProjects", fields: [projectId], references: [id], onDelete: Cascade)
+  guestBlogSite     GuestBlogSite         @relation("GuestBlogOrders", fields: [guestBlogSiteId], references: [id], onDelete: Cascade)
+  createdBy         User                  @relation("GuestBlogOrderCreatedBy", fields: [createdById], references: [id])
+
+  @@map("guest_blog_orders")
+}
+
+enum GuestBlogPlacementStatus {
+  READY_TO_PUBLISH
+  FOR_REVIEW
+  COMPLETED
+  FAILED
+  // Legacy statuses for backward compatibility
+  PENDING
+  PLACED
+  LIVE
+  APPROVED
+}
+
+model GuestBlogPlacement {
+  id                String                    @id @default(uuid())
+  placementId       String                    @unique // Human-readable placement ID (e.g., GBP-2024-001)
+  originalOrderId   String                    // Store original order ID for reference (no foreign key)
+  originalOrderNumber String                  // Store original order number for reference
+  clientId          String
+  projectId         String                    // Added project reference
+  guestBlogSiteId   String
+  price             Float
+  contentText       String?                   // Store content from original order
+  contentDocUrl     String?                   // Store content document from original order
+  status            GuestBlogPlacementStatus  @default(READY_TO_PUBLISH)
+  placedAt          DateTime?
+  liveUrl           String?
+  notes             String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  createdById       String
+  
+  // Relations (no relation to order since it will be deleted)
+  client            Client                    @relation("ClientPlacements", fields: [clientId], references: [id], onDelete: Cascade)
+  project           Project                   @relation("GuestBlogPlacementProjects", fields: [projectId], references: [id], onDelete: Cascade)
+  guestBlogSite     GuestBlogSite             @relation("SitePlacements", fields: [guestBlogSiteId], references: [id], onDelete: Cascade)
+  createdBy         User                      @relation("PlacementCreatedBy", fields: [createdById], references: [id])
+
+  @@map("guest_blog_placements")
+}

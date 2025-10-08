@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>Frontend API Configuration Test</h1>
+    <div id="results"></div>
+    <button onclick="testAPI()">Test API</button>
+
+    <script>
+        async function testAPI() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>Testing API configuration...</p>';
+            
+            try {
+                // Test what URL the frontend thinks it should use
+                const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+                results.innerHTML += `<p>Base URL: ${baseURL}</p>`;
+                results.innerHTML += `<p>Full API URL: ${baseURL}/api</p>`;
+                
+                // Test login
+                const loginResponse = await fetch(`${baseURL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'superadmin@example.com',
+                        password: 'password123'
+                    })
+                });
+                
+                const loginData = await loginResponse.json();
+                if (loginData.success) {
+                    results.innerHTML += '<p>✅ Login successful</p>';
+                    
+                    // Test guest-sites endpoint
+                    const sitesResponse = await fetch(`${baseURL}/api/guest-sites`, {
+                        headers: { 'Authorization': `Bearer ${loginData.token}` }
+                    });
+                    
+                    const sitesData = await sitesResponse.json();
+                    results.innerHTML += `<p>✅ Guest sites API: ${sitesData.data.length} sites</p>`;
+                    
+                    // Test publishers
+                    const publishersResponse = await fetch(`${baseURL}/api/publishers`, {
+                        headers: { 'Authorization': `Bearer ${loginData.token}` }
+                    });
+                    
+                    const publishersData = await publishersResponse.json();
+                    results.innerHTML += `<p>✅ Publishers API: ${publishersData.data.length} publishers</p>`;
+                    
+                } else {
+                    results.innerHTML += '<p>❌ Login failed</p>';
+                }
+                
+            } catch (error) {
+                results.innerHTML += `<p>❌ Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
