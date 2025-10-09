@@ -27,6 +27,7 @@ import {
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { autoRoundPrice } from '../../utils/priceRounding';
 
 interface OrderFormData {
   projectId: string;
@@ -124,7 +125,8 @@ const OrderForm: React.FC<OrderFormProps> = ({
   useEffect(() => {
     const cost = formData.selectedSites.reduce((total, siteId) => {
       const site = sites.find(s => s.id === siteId);
-      return total + (site?.clientPrice || 0);
+      const roundedPrice = autoRoundPrice(site?.clientPrice || 0);
+      return total + roundedPrice;
     }, 0);
     setTotalCost(cost);
 
@@ -397,7 +399,7 @@ const OrderForm: React.FC<OrderFormProps> = ({
                           <TableCell>{site.monthlyTraffic.toLocaleString()}</TableCell>
                           <TableCell>{site.category}</TableCell>
                           <TableCell>{site.publisher.name}</TableCell>
-                          <TableCell>${site.clientPrice}</TableCell>
+                          <TableCell>${autoRoundPrice(site.clientPrice)}</TableCell>
                           <TableCell>{site.turnaroundTime} days</TableCell>
                         </TableRow>
                       ))}

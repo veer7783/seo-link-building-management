@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { PrismaClient, Prisma, $Enums } from '@prisma/client';
-import { File } from 'multer';
 
 const prisma = new PrismaClient();
 

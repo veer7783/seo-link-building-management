@@ -414,4 +414,68 @@ router.delete('/:id', authenticate, requireAnyAdmin, async (req: AuthenticatedRe
   }
 });
 
+/**
+ * @swagger
+ * /api/publishers/by-email/{email}:
+ *   get:
+ *     summary: Get publisher by email
+ *     tags: [Publishers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: email
+ *     responses:
+ *       200:
+ *         description: Publisher retrieved successfully
+ *       404:
+ *         description: Publisher not found
+ */
+router.get('/by-email/:email', authenticate, requireAnyAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    
+    const publisher = await prisma.publisher.findFirst({
+      where: { 
+        email: {
+          equals: email,
+          mode: 'insensitive'
+        }
+      },
+      include: {
+        _count: {
+          select: {
+            sites: true,
+            publisherBills: true,
+          },
+        },
+      },
+    });
+
+    if (!publisher) {
+      return res.status(404).json({
+        success: false,
+        error: 'Publisher with this email does not exist',
+      });
+    }
+
+    const redactedPublisher = redactSensitiveFields(publisher, req.user!.role);
+
+    res.json({
+      success: true,
+      data: redactedPublisher,
+    });
+  } catch (error) {
+    logger.error('Get publisher by email error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    });
+  }
+});
+
 export { router as publisherRoutes };

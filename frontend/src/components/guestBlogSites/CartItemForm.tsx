@@ -14,6 +14,7 @@ import { Upload as UploadIcon } from '@mui/icons-material';
 import { guestBlogOrderService } from '../../services/guestBlogOrderService';
 import RichTextEditor from '../common/RichTextEditor';
 import { isHtmlEmpty } from '../../utils/htmlSanitizer';
+import { formatRoundedPrice } from '../../utils/priceRounding';
 
 interface CartItemFormProps {
   open: boolean;
@@ -123,7 +124,7 @@ const CartItemForm: React.FC<CartItemFormProps> = ({
             {siteUrl}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Client: {clientName} • Price: ${adjustedPrice.toFixed(2)}
+            Client: {clientName} • Price: {formatRoundedPrice(adjustedPrice)}
           </Typography>
         </Box>
 

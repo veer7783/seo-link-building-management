@@ -15,6 +15,7 @@ import {
   Typography,
   Box,
   Alert,
+  Snackbar,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { publisherService } from '../../services/publisherService';
@@ -28,6 +29,7 @@ import {
   COUNTRIES,
   SITE_LANGUAGES,
 } from '../../types/guestBlogSite';
+import { autoRoundPrice, getPriceRoundingMessage, parseAndRoundPrice } from '../../utils/priceRounding';
 
 // Client-side URL normalization function
 const normalizeUrl = (input: string): string => {
@@ -85,6 +87,8 @@ const GuestBlogSiteForm: React.FC<GuestBlogSiteFormProps> = ({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [roundingNotification, setRoundingNotification] = useState<string | null>(null);
+  const [showRoundingToast, setShowRoundingToast] = useState(false);
 
   // Fetch publishers for dropdown
   const { data: publishersData } = useQuery({
@@ -136,59 +140,80 @@ const GuestBlogSiteForm: React.FC<GuestBlogSiteFormProps> = ({
     }
   };
 
-  const validateForm = (): boolean => {
+  // Handle price changes with auto-rounding on blur
+  const handlePriceBlur = (value: string) => {
+    const originalPrice = parseFloat(value) || 0;
+    const roundedPrice = autoRoundPrice(originalPrice);
+    
+    if (originalPrice !== roundedPrice && originalPrice > 0) {
+      // Update form data with rounded price
+      setFormData(prev => ({ ...prev, base_price: roundedPrice }));
+      
+      // Show rounding notification
+      const message = getPriceRoundingMessage(originalPrice, roundedPrice);
+      if (message) {
+        setRoundingNotification(message);
+        setShowRoundingToast(true);
+      }
+    }
+  };
+
+  const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
+    // Required fields validation
     if (!formData.site_url.trim()) {
       newErrors.site_url = 'Site URL is required';
     } else {
       // Validate URL format after normalization
       try {
         const normalizedUrl = normalizeUrl(formData.site_url);
-        new URL(normalizedUrl); // This will throw if invalid
-      } catch {
-        newErrors.site_url = 'Please enter a valid domain or URL';
+        // Basic URL validation
+        new URL(normalizedUrl);
+      } catch (error) {
+        newErrors.site_url = 'Please enter a valid URL';
       }
     }
 
-    if (formData.da < 0 || formData.da > 100) {
-      newErrors.da = 'Domain Authority must be between 0 and 100';
-    }
-
-    if (formData.dr < 0 || formData.dr > 100) {
-      newErrors.dr = 'Domain Rating must be between 0 and 100';
-    }
-
-    if (formData.ahrefs_traffic < 0) {
-      newErrors.ahrefs_traffic = 'Ahrefs Traffic must be positive';
-    }
-
-    if (formData.ss && (formData.ss < 0 || formData.ss > 100)) {
-      newErrors.ss = 'Spam Score must be between 0 and 100';
-    }
-
-    if (!formData.tat.trim()) {
-      newErrors.tat = 'Turnaround Time is required';
+    if (!formData.publisher_id) {
+      newErrors.publisher_id = 'Publisher Email is required';
     }
 
     if (!formData.category) {
       newErrors.category = 'Category is required';
     }
 
-    if (formData.base_price <= 0) {
-      newErrors.base_price = 'Base Price must be greater than 0';
-    }
-
     if (!formData.country.trim()) {
       newErrors.country = 'Country is required';
     }
 
-    if (!formData.publisher_id) {
-      newErrors.publisher_id = 'Publisher is required';
-    }
-
     if (!formData.site_language.trim()) {
       newErrors.site_language = 'Site Language is required';
+    }
+
+    if (!formData.tat.trim()) {
+      newErrors.tat = 'TAT is required';
+    }
+
+    if (formData.base_price <= 0) {
+      newErrors.base_price = 'Base Price is required and must be greater than 0';
+    }
+
+    // Optional fields validation - only validate if provided and not empty
+    if (formData.da !== undefined && formData.da !== null && formData.da !== 0 && (formData.da < 0 || formData.da > 100)) {
+      newErrors.da = 'DA must be between 0 and 100';
+    }
+
+    if (formData.dr !== undefined && formData.dr !== null && formData.dr !== 0 && (formData.dr < 0 || formData.dr > 100)) {
+      newErrors.dr = 'DR must be between 0 and 100';
+    }
+
+    if (formData.ahrefs_traffic !== undefined && formData.ahrefs_traffic !== null && formData.ahrefs_traffic !== 0 && formData.ahrefs_traffic < 0) {
+      newErrors.ahrefs_traffic = 'Traffic must be a positive number';
+    }
+
+    if (formData.ss !== undefined && formData.ss !== null && formData.ss !== 0 && (formData.ss < 0 || formData.ss > 100)) {
+      newErrors.ss = 'SS must be between 0 and 100';
     }
 
     setErrors(newErrors);
@@ -253,27 +278,25 @@ const GuestBlogSiteForm: React.FC<GuestBlogSiteFormProps> = ({
             <Grid item xs={6}>
               <TextField
                 fullWidth
-                label="Domain Authority (DA)"
+                label="Domain Authority (DA) (Optional)"
                 type="number"
                 value={formData.da}
                 onChange={(e) => handleChange('da', e.target.value)}
                 error={!!errors.da}
-                helperText={errors.da}
+                helperText={errors.da || "Optional field - leave blank if unknown"}
                 inputProps={{ min: 0, max: 100 }}
-                required
               />
             </Grid>
             <Grid item xs={6}>
               <TextField
                 fullWidth
-                label="Domain Rating (DR)"
+                label="Domain Rating (DR) (Optional)"
                 type="number"
                 value={formData.dr}
                 onChange={(e) => handleChange('dr', e.target.value)}
                 error={!!errors.dr}
-                helperText={errors.dr}
+                helperText={errors.dr || "Optional field - leave blank if unknown"}
                 inputProps={{ min: 0, max: 100 }}
-                required
               />
             </Grid>
 
@@ -281,25 +304,24 @@ const GuestBlogSiteForm: React.FC<GuestBlogSiteFormProps> = ({
             <Grid item xs={6}>
               <TextField
                 fullWidth
-                label="Ahrefs Traffic"
+                label="Ahrefs Traffic (Optional)"
                 type="number"
                 value={formData.ahrefs_traffic}
                 onChange={(e) => handleChange('ahrefs_traffic', e.target.value)}
                 error={!!errors.ahrefs_traffic}
-                helperText={errors.ahrefs_traffic}
+                helperText={errors.ahrefs_traffic || "Optional field - leave blank if unknown"}
                 inputProps={{ min: 0 }}
-                required
               />
             </Grid>
             <Grid item xs={6}>
               <TextField
                 fullWidth
-                label="Spam Score (SS)"
+                label="Spam Score (SS) (Optional)"
                 type="number"
                 value={formData.ss}
                 onChange={(e) => handleChange('ss', e.target.value)}
                 error={!!errors.ss}
-                helperText={errors.ss}
+                helperText={errors.ss || "Optional field - leave blank if unknown"}
                 inputProps={{ min: 0, max: 100 }}
               />
             </Grid>
@@ -396,15 +418,17 @@ const GuestBlogSiteForm: React.FC<GuestBlogSiteFormProps> = ({
             {/* Publisher */}
             <Grid item xs={12}>
               <FormControl fullWidth error={!!errors.publisher_id}>
-                <InputLabel>Publisher *</InputLabel>
+                <InputLabel>Publisher Email *</InputLabel>
                 <Select
                   value={formData.publisher_id}
-                  label="Publisher *"
+                  label="Publisher Email *"
                   onChange={(e) => handleChange('publisher_id', e.target.value)}
                 >
-                  {publishers.map((publisher) => (
+                  {publishers
+                    .filter(publisher => publisher.email) // Only show publishers with email
+                    .map((publisher) => (
                     <MenuItem key={publisher.id} value={publisher.id}>
-                      {publisher.publisherName}
+                      {publisher.publisherName} ({publisher.email})
                     </MenuItem>
                   ))}
                 </Select>
@@ -424,8 +448,9 @@ const GuestBlogSiteForm: React.FC<GuestBlogSiteFormProps> = ({
                 type="number"
                 value={formData.base_price}
                 onChange={(e) => handleChange('base_price', e.target.value)}
+                onBlur={(e) => handlePriceBlur(e.target.value)}
                 error={!!errors.base_price}
-                helperText={errors.base_price || 'Enter the base price (25% markup will be applied for display)'}
+                helperText={errors.base_price || 'Enter the base price (auto-rounds on blur, 25% markup applied for display)'}
                 inputProps={{ min: 0, step: 0.01 }}
                 required
               />
@@ -469,6 +494,15 @@ const GuestBlogSiteForm: React.FC<GuestBlogSiteFormProps> = ({
           </Button>
         </DialogActions>
       </form>
+
+      {/* Price Rounding Notification */}
+      <Snackbar
+        open={showRoundingToast}
+        autoHideDuration={4000}
+        onClose={() => setShowRoundingToast(false)}
+        message={roundingNotification}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Dialog>
   );
 };

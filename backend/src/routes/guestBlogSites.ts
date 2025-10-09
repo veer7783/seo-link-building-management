@@ -5,6 +5,7 @@ import multer from 'multer';
 import { authenticate, AuthenticatedRequest, requireAnyAdmin, requireSuperAdmin } from '../middleware/auth';
 import { logger } from '../utils/logger';
 import { normalizeUrl, validateNormalizedUrl } from '../utils/urlNormalization';
+import { autoRoundPrice, parseAndRoundPrice } from '../utils/priceRounding';
 import {
   parseCSV,
   parseExcel,
@@ -12,7 +13,9 @@ import {
   generatePreview,
   saveBulkData,
   generateCSVTemplate,
+  validateColumnOrder,
   GUEST_BLOG_SITE_COLUMNS,
+  EXPECTED_COLUMN_ORDER,
   type ColumnMapping,
   type BulkUploadPreview
 } from '../services/bulkUploadService';
@@ -250,17 +253,20 @@ router.post('/', [
     }
     return true;
   }),
-  body('da').isInt({ min: 0, max: 100 }),
-  body('dr').isInt({ min: 0, max: 100 }),
-  body('ahrefs_traffic').isInt({ min: 0 }),
-  body('ss').optional().isInt({ min: 0, max: 100 }),
-  body('tat').trim().isLength({ min: 1 }),
-  body('category').isIn(Object.keys(CATEGORY_DISPLAY_MAP)),
-  body('status').optional().isIn(['ACTIVE', 'INACTIVE']),
-  body('base_price').isFloat({ min: 0 }),
-  body('country').trim().isLength({ min: 1 }),
-  body('publisher_id').isUUID(),
-  body('site_language').trim().isLength({ min: 1 }),
+  // Required fields only
+  body('publisher_id').isUUID().withMessage('Publisher is required'),
+  body('category').isIn(Object.keys(CATEGORY_DISPLAY_MAP)).withMessage('Category is required'),
+  body('country').trim().isLength({ min: 1 }).withMessage('Country is required'),
+  body('site_language').trim().isLength({ min: 1 }).withMessage('Site Language is required'),
+  body('tat').trim().isLength({ min: 1 }).withMessage('TAT is required'),
+  body('base_price').isFloat({ min: 0 }).withMessage('Base Price is required and must be greater than 0'),
+  
+  // Optional fields with validation only if provided
+  body('da').optional().isInt({ min: 0, max: 100 }).withMessage('DA must be between 0 and 100'),
+  body('dr').optional().isInt({ min: 0, max: 100 }).withMessage('DR must be between 0 and 100'),
+  body('ahrefs_traffic').optional().isInt({ min: 0 }).withMessage('Traffic must be a positive number'),
+  body('ss').optional().isInt({ min: 0, max: 100 }).withMessage('SS must be between 0 and 100'),
+  body('status').optional().isIn(['ACTIVE', 'INACTIVE']).withMessage('Status must be ACTIVE or INACTIVE'),
 ], async (req: AuthenticatedRequest, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -297,7 +303,7 @@ router.post('/', [
         tat: req.body.tat,
         category: req.body.category as GuestBlogSiteCategory,
         status: (req.body.status as GuestBlogSiteStatus) || GuestBlogSiteStatus.ACTIVE,
-        base_price: parseFloat(req.body.base_price),
+        base_price: autoRoundPrice(parseFloat(req.body.base_price)),
         country: req.body.country,
         publisher_id: req.body.publisher_id,
         site_language: req.body.site_language,
@@ -442,7 +448,7 @@ router.put('/:id', [
     if (req.body.tat) updateData.tat = req.body.tat;
     if (req.body.category) updateData.category = req.body.category as GuestBlogSiteCategory;
     if (req.body.status) updateData.status = req.body.status as GuestBlogSiteStatus;
-    if (req.body.base_price !== undefined) updateData.base_price = parseFloat(req.body.base_price);
+    if (req.body.base_price !== undefined) updateData.base_price = autoRoundPrice(parseFloat(req.body.base_price));
     if (req.body.country) updateData.country = req.body.country;
     if (req.body.publisher_id) updateData.publisher_id = req.body.publisher_id;
     if (req.body.site_language) updateData.site_language = req.body.site_language;
@@ -788,6 +794,10 @@ router.post('/bulk-upload/parse', authenticate, requireAnyAdmin, upload.single('
     const availableColumns = Object.keys(parsedData[0]);
     const autoMappings = autoDetectColumnMappings(availableColumns);
 
+    // Validate column order
+    const columnOrderValidation = validateColumnOrder(availableColumns);
+    const warnings = columnOrderValidation.warnings;
+
     // Get client percentage if provided
     let clientPercentage = 25; // Default 25%
     if (req.body.clientId) {
@@ -809,7 +819,12 @@ router.post('/bulk-upload/parse', authenticate, requireAnyAdmin, upload.single('
         autoMappings,
         guestBlogSiteColumns: GUEST_BLOG_SITE_COLUMNS,
         clientPercentage,
-        sessionId: Date.now().toString() // Simple session ID for tracking
+        sessionId: Date.now().toString(), // Simple session ID for tracking
+        columnOrderValidation: {
+          isValid: columnOrderValidation.isValid,
+          warnings: warnings,
+          expectedOrder: EXPECTED_COLUMN_ORDER
+        }
       }
     });
 

@@ -1,4 +1,5 @@
 import { apiService } from './api';
+import { autoRoundPrice } from '../utils/priceRounding';
 
 export interface GuestBlogOrder {
   id: string;
@@ -149,10 +150,11 @@ class GuestBlogOrderService {
   }
 
   formatPrice(price: number): string {
+    const roundedPrice = autoRoundPrice(price);
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-    }).format(price);
+    }).format(roundedPrice);
   }
 
   getStatusColor(status: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' {
@@ -195,6 +197,37 @@ class GuestBlogOrderService {
     return `${backendUrl}${relativePath}`;
   }
 
+  // Utility function to get preview URL for documents
+  getPreviewUrl(relativePath: string): string {
+    if (!relativePath) return '';
+    const filename = this.getFileName(relativePath);
+    const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+    return `${backendUrl}/api/guest-blog-orders/preview/${filename}?token=preview-access`;
+  }
+
+  // Extract DOCX content as HTML
+  async extractDocxContent(relativePath: string): Promise<{ success: boolean; content?: string; error?: string }> {
+    if (!relativePath) return { success: false, error: 'No file path provided' };
+    
+    try {
+      const filename = this.getFileName(relativePath);
+      const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+      const extractUrl = `${backendUrl}/api/guest-blog-orders/extract/${filename}?token=preview-access`;
+      
+      console.log('Extracting DOCX content from:', extractUrl);
+      
+      const response = await fetch(extractUrl);
+      const result = await response.json();
+      
+      console.log('DOCX extraction result:', result);
+      
+      return result;
+    } catch (error) {
+      console.error('Error extracting DOCX content:', error);
+      return { success: false, error: 'Failed to extract document content' };
+    }
+  }
+
   // Utility function to get filename from URL
   getFileName(fileUrl: string): string {
     if (!fileUrl) return 'document';
@@ -210,9 +243,9 @@ class GuestBlogOrderService {
     const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:3001';
     
     try {
-      // Try using the dedicated download endpoint first
+      // Try using the dedicated download endpoint with token
       const filename = this.getFileName(fileUrl);
-      const downloadUrl = `${backendUrl}/api/guest-blog-orders/download/${filename}`;
+      const downloadUrl = `${backendUrl}/api/guest-blog-orders/download/${filename}?token=download-access`;
       
       // Create a temporary link element and trigger download
       const link = document.createElement('a');
@@ -224,9 +257,10 @@ class GuestBlogOrderService {
       document.body.removeChild(link);
     } catch (error) {
       console.error('Error downloading file:', error);
-      // Fallback: try direct file URL
-      const fullUrl = this.getFileUrl(fileUrl);
-      window.open(fullUrl, '_blank');
+      // Fallback: try direct file URL with token
+      const filename = this.getFileName(fileUrl);
+      const fallbackUrl = `${backendUrl}/api/guest-blog-orders/preview/${filename}?token=preview-access`;
+      window.open(fallbackUrl, '_blank');
     }
   }
 }

@@ -46,6 +46,7 @@ import { clientService } from '../services/clientService';
 import { guestBlogOrderService } from '../services/guestBlogOrderService';
 import { projectService } from '../services/projectService';
 import { useAuth } from '../contexts/AuthContext';
+import { formatRoundedPrice } from '../utils/priceRounding';
 import {
   GuestBlogSite,
   GuestBlogSiteStatus,
@@ -625,7 +626,7 @@ const GuestBlogSitesPage: React.FC = () => {
                 <MenuItem value="">All Publishers</MenuItem>
                 {publishers.map((publisher) => (
                   <MenuItem key={publisher.id} value={publisher.id}>
-                    {publisher.publisherName}
+                    {publisher.email ? `${publisher.publisherName} (${publisher.email})` : publisher.publisherName}
                   </MenuItem>
                 ))}
               </Select>
@@ -777,7 +778,11 @@ const GuestBlogSitesPage: React.FC = () => {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    {site.publisher?.publisherName || 'N/A'}
+                    {site.publisher ? (
+                      site.publisher.email ? 
+                        `${site.publisher.publisherName} (${site.publisher.email})` : 
+                        site.publisher.publisherName
+                    ) : 'N/A'}
                   </TableCell>
                   <TableCell>{site.da}</TableCell>
                   <TableCell>{site.dr}</TableCell>
@@ -790,7 +795,7 @@ const GuestBlogSitesPage: React.FC = () => {
                   <TableCell>
                     <Box>
                       <Typography variant="body2" fontWeight="medium" color="primary">
-                        {guestBlogSiteService.formatPrice(site.displayed_price)}
+                        {formatRoundedPrice(site.displayed_price)}
                       </Typography>
                       {site.isOverride && (
                         <Chip size="small" label="Override" color="warning" />

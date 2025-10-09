@@ -16,13 +16,16 @@ import {
   Paper,
   Checkbox,
   Button,
-  Chip,
   Alert,
+  Chip,
+  Grid,
   TablePagination,
   Tooltip,
   IconButton,
   Collapse,
 } from '@mui/material';
+import { BulkUploadPreview, PreviewRow } from '../../services/bulkUploadService';
+import { formatRoundedPrice } from '../../utils/priceRounding';
 import {
   CheckCircle as ValidIcon,
   Error as ErrorIcon,
@@ -30,8 +33,6 @@ import {
   ExpandLess as CollapseIcon,
   ArrowForward as NextIcon,
 } from '@mui/icons-material';
-
-import { type PreviewRow } from '../../services/bulkUploadService';
 
 interface PreviewTableStepProps {
   previewData: PreviewRow[];
@@ -92,10 +93,7 @@ const PreviewTableStep: React.FC<PreviewTableStepProps> = ({
   };
 
   const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(price);
+    return formatRoundedPrice(price);
   };
 
   const getStatusChip = (status: string) => {
@@ -164,7 +162,7 @@ const PreviewTableStep: React.FC<PreviewTableStepProps> = ({
               <TableCell align="center">Traffic</TableCell>
               <TableCell>Category</TableCell>
               <TableCell>Country</TableCell>
-              <TableCell>Publisher</TableCell>
+              <TableCell>Publisher Email</TableCell>
               <TableCell align="right">Base Price</TableCell>
               <TableCell align="right">Display Price</TableCell>
               <TableCell>Site Status</TableCell>

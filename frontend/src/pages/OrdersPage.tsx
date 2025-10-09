@@ -37,6 +37,7 @@ import {
   ShoppingCart as PlaceOrderIcon,
   AttachFile as AttachFileIcon,
   Download as DownloadIcon,
+  RemoveRedEye as PreviewIcon,
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { guestBlogOrderService, GuestBlogOrder } from '../services/guestBlogOrderService';
@@ -46,6 +47,7 @@ import { useAuth } from '../contexts/AuthContext';
 import RichTextEditor from '../components/common/RichTextEditor';
 import HtmlContent from '../components/common/HtmlContent';
 import { isHtmlEmpty } from '../utils/htmlSanitizer';
+import DocumentPreviewModal from '../components/common/DocumentPreviewModal';
 
 const OrdersPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -60,6 +62,7 @@ const OrdersPage: React.FC = () => {
   const [editData, setEditData] = useState({ contentText: '', status: '', contentDocUrl: '' });
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -618,6 +621,14 @@ const OrdersPage: React.FC = () => {
                     </Typography>
                     <Button
                       size="small"
+                      startIcon={<PreviewIcon />}
+                      onClick={() => setPreviewModalOpen(true)}
+                      variant="outlined"
+                    >
+                      View Document
+                    </Button>
+                    <Button
+                      size="small"
                       startIcon={<DownloadIcon />}
                       onClick={() => guestBlogOrderService.downloadFile(editData.contentDocUrl || '', `order-${selectedOrder?.orderId}-content`)}
                     >
@@ -674,6 +685,17 @@ const OrdersPage: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Document Preview Modal */}
+      {editData.contentDocUrl && (
+        <DocumentPreviewModal
+          open={previewModalOpen}
+          onClose={() => setPreviewModalOpen(false)}
+          documentUrl={editData.contentDocUrl}
+          fileName={guestBlogOrderService.getFileName(editData.contentDocUrl)}
+          onDownload={() => guestBlogOrderService.downloadFile(editData.contentDocUrl || '', `order-${selectedOrder?.orderId}-content`)}
+        />
+      )}
 
       {/* Snackbar for notifications */}
       <Snackbar

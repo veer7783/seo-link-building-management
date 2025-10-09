@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { PrismaClient, GuestBlogPlacementStatus } from '@prisma/client';
 import { authenticate, requireSuperAdmin, AuthenticatedRequest } from '../middleware/auth';
@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+const mammoth = require('mammoth');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -637,10 +638,159 @@ router.get('/ordered-sites/:clientId', authenticate, requireSuperAdmin, async (r
   }
 });
 
-// GET /api/guest-blog-orders/download/:filename - Download content document
-router.get('/download/:filename', authenticate, async (req: AuthenticatedRequest, res) => {
+// GET /api/guest-blog-orders/extract/:filename - Extract DOCX content as HTML
+router.get('/extract/:filename', async (req: Request, res: Response) => {
   try {
     const { filename } = req.params;
+    const { token } = req.query;
+    
+    // Simple token validation
+    if (!token || token !== 'preview-access') {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized access'
+      });
+    }
+    
+    const filePath = path.join(process.cwd(), 'uploads', 'content-docs', filename);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found'
+      });
+    }
+
+    // Get file extension
+    const ext = path.extname(filename).toLowerCase();
+    
+    if (ext === '.docx') {
+      try {
+        // Extract DOCX content using mammoth
+        const result = await mammoth.convertToHtml({ path: filePath });
+        const html = result.value;
+        const messages = result.messages;
+        
+        // Log any conversion messages
+        if (messages.length > 0) {
+          logger.info('DOCX conversion messages:', messages);
+        }
+        
+        res.json({
+          success: true,
+          content: html,
+          type: 'html',
+          filename: filename
+        });
+      } catch (error) {
+        logger.error('Error extracting DOCX content:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Failed to extract document content'
+        });
+      }
+    } else if (ext === '.doc') {
+      // For older .doc files, return a message that they're not supported for extraction
+      res.json({
+        success: false,
+        error: 'DOC files are not supported for content extraction. Please use DOCX format or download the file.',
+        type: 'unsupported'
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: 'File type not supported for content extraction'
+      });
+    }
+  } catch (error) {
+    logger.error('Error in extract endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to extract document content'
+    });
+  }
+});
+
+// GET /api/guest-blog-orders/preview/:filename - Preview content document inline
+router.get('/preview/:filename', async (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const { token } = req.query;
+    
+    // Simple token validation (in production, use proper JWT validation)
+    if (!token || token !== 'preview-access') {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized access'
+      });
+    }
+    
+    const filePath = path.join(process.cwd(), 'uploads', 'content-docs', filename);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found'
+      });
+    }
+
+    // Get file extension to determine content type
+    const ext = path.extname(filename).toLowerCase();
+    let contentType = 'application/octet-stream';
+    
+    switch (ext) {
+      case '.pdf':
+        contentType = 'application/pdf';
+        break;
+      case '.doc':
+        contentType = 'application/msword';
+        break;
+      case '.docx':
+        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        break;
+      case '.txt':
+        contentType = 'text/plain';
+        break;
+      case '.rtf':
+        contentType = 'application/rtf';
+        break;
+    }
+
+    // Set appropriate headers for inline preview
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+    res.setHeader('Access-Control-Allow-Origin', '*'); // Allow CORS for preview
+    res.setHeader('X-Frame-Options', 'ALLOWALL'); // Allow iframe embedding
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' *"); // Allow iframe from any origin
+    
+    // Send file
+    res.sendFile(filePath);
+  } catch (error) {
+    logger.error('Error previewing file:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to preview file'
+    });
+  }
+});
+
+// GET /api/guest-blog-orders/download/:filename - Download content document
+router.get('/download/:filename', async (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const { token } = req.query;
+    
+    // Simple token validation for download access
+    if (!token || token !== 'download-access') {
+      return res.status(401).json({
+        success: false,
+        error: 'Access denied. No token provided.'
+      });
+    }
+    
     const filePath = path.join(process.cwd(), 'uploads', 'content-docs', filename);
     
     // Check if file exists

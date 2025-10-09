@@ -1,4 +1,5 @@
 import { apiService } from './api';
+import { autoRoundPrice } from '../utils/priceRounding';
 
 export interface GuestBlogPlacement {
   id: string;
@@ -107,10 +108,11 @@ class GuestBlogPlacementService {
 
   // Utility functions
   formatPrice(price: number): string {
+    const roundedPrice = autoRoundPrice(price);
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-    }).format(price);
+    }).format(roundedPrice);
   }
 
   // Legacy status mapping for backward compatibility

@@ -82,6 +82,12 @@ class PublisherService {
     const response = await apiService.patch<ApiResponse<Publisher>>(`/publishers/${id}/toggle-status`);
     return response.data;
   }
+
+  async getPublisherByEmail(email: string): Promise<Publisher> {
+    const encodedEmail = encodeURIComponent(email);
+    const response = await apiService.get<ApiResponse<Publisher>>(`/publishers/by-email/${encodedEmail}`);
+    return response.data;
+  }
 }
 
 export const publisherService = new PublisherService();

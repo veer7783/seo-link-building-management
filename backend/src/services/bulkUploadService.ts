@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
 import { normalizeUrl, validateNormalizedUrl } from '../utils/urlNormalization';
+import { autoRoundPrice, parseAndRoundPrice } from '../utils/priceRounding';
 
 const prisma = new PrismaClient();
 
@@ -57,19 +58,26 @@ export interface BulkUploadResult {
 }
 
 // Define available fields for mapping
+// Define expected column order and requirements
 export const GUEST_BLOG_SITE_COLUMNS = [
-  { key: 'site_url', label: 'Site URL', required: true },
-  { key: 'da', label: 'Domain Authority (DA)', required: false },
-  { key: 'dr', label: 'Domain Rating (DR)', required: false },
-  { key: 'ahrefs_traffic', label: 'Ahrefs Traffic', required: false },
-  { key: 'ss', label: 'Spam Score (SS)', required: false },
-  { key: 'tat', label: 'Turnaround Time (TAT)', required: false },
-  { key: 'category', label: 'Category', required: false },
-  { key: 'status', label: 'Status', required: true },
-  { key: 'base_price', label: 'Base Price', required: true },
-  { key: 'country', label: 'Country', required: false },
-  { key: 'publisher', label: 'Publisher', required: false },
-  { key: 'site_language', label: 'Site Language', required: true },
+  { key: 'site_url', label: 'Site URL', required: true, order: 1 },
+  { key: 'publisher', label: 'Publisher Email', required: true, order: 2 },
+  { key: 'da', label: 'Domain Authority (DA)', required: false, order: 3 },
+  { key: 'dr', label: 'Domain Rating (DR)', required: false, order: 4 },
+  { key: 'ahrefs_traffic', label: 'Ahrefs Traffic', required: false, order: 5 },
+  { key: 'ss', label: 'Spam Score (SS)', required: false, order: 6 },
+  { key: 'category', label: 'Category', required: true, order: 7 },
+  { key: 'country', label: 'Country', required: true, order: 8 },
+  { key: 'site_language', label: 'Site Language', required: true, order: 9 },
+  { key: 'tat', label: 'Turnaround Time (TAT)', required: true, order: 10 },
+  { key: 'base_price', label: 'Base Price', required: true, order: 11 },
+  { key: 'status', label: 'Status', required: false, order: 12 },
+];
+
+// Expected column order for CSV template
+export const EXPECTED_COLUMN_ORDER = [
+  'Site URL', 'Publisher Email', 'DA', 'DR', 'Traffic', 'SS', 
+  'Category', 'Country', 'Language', 'TAT', 'Base Price', 'Status'
 ];
 
 // Valid categories - must match GuestBlogSiteCategory enum in schema.prisma
@@ -159,7 +167,8 @@ export const autoDetectColumnMappings = (csvHeaders: string[]): ColumnMapping[] 
     'status': 'status',
     'base price': 'base_price',
     'country': 'country',
-    'publisher': 'publisher',
+    'publisher email': 'publisher',
+    'publisher': 'publisher', // Keep backward compatibility
     'site language': 'site_language',
   };
 
@@ -193,12 +202,45 @@ export const autoDetectColumnMappings = (csvHeaders: string[]): ColumnMapping[] 
 };
 
 /**
+ * Validate column order against expected format
+ */
+export const validateColumnOrder = (csvHeaders: string[]): { isValid: boolean; warnings: string[] } => {
+  const warnings: string[] = [];
+  let isValid = true;
+
+  // Normalize headers for comparison
+  const normalizedHeaders = csvHeaders.map(h => h.toLowerCase().trim());
+  const expectedNormalized = EXPECTED_COLUMN_ORDER.map(h => h.toLowerCase().trim());
+
+  // Check if headers match expected order
+  if (normalizedHeaders.length !== expectedNormalized.length) {
+    warnings.push(`Column count mismatch — expected ${expectedNormalized.length} columns, found ${normalizedHeaders.length}`);
+    isValid = false;
+  }
+
+  // Check order and missing columns
+  expectedNormalized.forEach((expected, index) => {
+    if (index < normalizedHeaders.length) {
+      if (normalizedHeaders[index] !== expected) {
+        warnings.push(`Column order mismatch at position ${index + 1} — expected "${EXPECTED_COLUMN_ORDER[index]}", found "${csvHeaders[index]}"`);
+        isValid = false;
+      }
+    } else {
+      warnings.push(`Missing column: "${EXPECTED_COLUMN_ORDER[index]}"`);
+      isValid = false;
+    }
+  });
+
+  return { isValid, warnings };
+};
+
+/**
  * Validate a single row of data
  */
 const validateRow = async (rowData: any, rowIndex: number, publishers: any[]): Promise<{ isValid: boolean; errors: ValidationError[] }> => {
   const errors: ValidationError[] = [];
 
-  // Validate required fields (Site URL, Base Price, Status, Site Language)
+  // Validate required fields: Site URL, Publisher, Category, Country, Language, TAT, Base Price
   if (!rowData.site_url || !rowData.site_url.trim()) {
     errors.push({
       row: rowIndex,
@@ -221,21 +263,30 @@ const validateRow = async (rowData: any, rowIndex: number, publishers: any[]): P
     }
   }
 
-  if (!rowData.base_price || isNaN(parseFloat(rowData.base_price))) {
+  if (!rowData.publisher || !rowData.publisher.trim()) {
     errors.push({
       row: rowIndex,
-      field: 'base_price',
-      value: rowData.base_price,
-      error: 'Valid base price is required'
+      field: 'publisher',
+      value: rowData.publisher,
+      error: 'Publisher Email is required'
     });
   }
 
-  if (!rowData.status || !rowData.status.trim()) {
+  if (!rowData.category || !rowData.category.trim()) {
     errors.push({
       row: rowIndex,
-      field: 'status',
-      value: rowData.status,
-      error: 'Status is required'
+      field: 'category',
+      value: rowData.category,
+      error: 'Category is required'
+    });
+  }
+
+  if (!rowData.country || !rowData.country.trim()) {
+    errors.push({
+      row: rowIndex,
+      field: 'country',
+      value: rowData.country,
+      error: 'Country is required'
     });
   }
 
@@ -248,13 +299,36 @@ const validateRow = async (rowData: any, rowIndex: number, publishers: any[]): P
     });
   }
 
-  // Validate numeric fields
+  if (!rowData.tat || !rowData.tat.trim()) {
+    errors.push({
+      row: rowIndex,
+      field: 'tat',
+      value: rowData.tat,
+      error: 'TAT is required'
+    });
+  }
+
+  if (!rowData.base_price || isNaN(parseFloat(rowData.base_price))) {
+    errors.push({
+      row: rowIndex,
+      field: 'base_price',
+      value: rowData.base_price,
+      error: 'Base Price is required and must be a valid number'
+    });
+  } else {
+    // Auto-round the price and update the row data
+    const originalPrice = parseFloat(rowData.base_price);
+    const roundedPrice = autoRoundPrice(originalPrice);
+    rowData.base_price = roundedPrice; // Update with rounded value
+  }
+
+  // Optional fields - validate only if provided
   if (rowData.da && (isNaN(parseInt(rowData.da)) || parseInt(rowData.da) < 0 || parseInt(rowData.da) > 100)) {
     errors.push({
       row: rowIndex,
       field: 'da',
       value: rowData.da,
-      error: 'DA must be a number between 0 and 100'
+      error: 'DA must be between 0 and 100'
     });
   }
 
@@ -263,7 +337,7 @@ const validateRow = async (rowData: any, rowIndex: number, publishers: any[]): P
       row: rowIndex,
       field: 'dr',
       value: rowData.dr,
-      error: 'DR must be a number between 0 and 100'
+      error: 'DR must be between 0 and 100'
     });
   }
 
@@ -272,35 +346,43 @@ const validateRow = async (rowData: any, rowIndex: number, publishers: any[]): P
       row: rowIndex,
       field: 'ahrefs_traffic',
       value: rowData.ahrefs_traffic,
-      error: 'Ahrefs traffic must be a positive number'
+      error: 'Traffic must be a positive number'
     });
   }
 
-  // Validate category
+  if (rowData.ss && (isNaN(parseInt(rowData.ss)) || parseInt(rowData.ss) < 0 || parseInt(rowData.ss) > 100)) {
+    errors.push({
+      row: rowIndex,
+      field: 'ss',
+      value: rowData.ss,
+      error: 'SS must be between 0 and 100'
+    });
+  }
+
+  if (rowData.status && !['ACTIVE', 'INACTIVE'].includes(rowData.status.toUpperCase())) {
+    errors.push({
+      row: rowIndex,
+      field: 'status',
+      value: rowData.status,
+      error: 'Status must be ACTIVE or INACTIVE'
+    });
+  }
+
+  // Validate category if provided
   if (rowData.category && !VALID_CATEGORIES.includes(rowData.category.toUpperCase())) {
     errors.push({
       row: rowIndex,
       field: 'category',
       value: rowData.category,
-      error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(', ')}`
+      error: 'Invalid category'
     });
   }
 
-  // Validate status
-  if (rowData.status && !VALID_STATUSES.includes(rowData.status.toUpperCase())) {
-    errors.push({
-      row: rowIndex,
-      field: 'status',
-      value: rowData.status,
-      error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`
-    });
-  }
-
-  // Validate publisher exists
-  if (rowData.publisher) {
+  // Validate publisher exists by email (preferred) or name (backward compatibility)
+  if (rowData.publisher && rowData.publisher.trim()) {
     const publisherExists = publishers.some(p => 
-      p.publisherName.toLowerCase() === rowData.publisher.toLowerCase() ||
-      p.email.toLowerCase() === rowData.publisher.toLowerCase()
+      (p.email && p.email.toLowerCase() === rowData.publisher.toLowerCase()) ||
+      p.publisherName.toLowerCase() === rowData.publisher.toLowerCase()
     );
     
     if (!publisherExists) {
@@ -308,15 +390,12 @@ const validateRow = async (rowData: any, rowIndex: number, publishers: any[]): P
         row: rowIndex,
         field: 'publisher',
         value: rowData.publisher,
-        error: 'Publisher not found. Use publisher name or email.'
+        error: 'Publisher with this email does not exist'
       });
     }
   }
 
-  return {
-    isValid: errors.length === 0,
-    errors
-  };
+  return { isValid: errors.length === 0, errors };
 };
 
 /**
@@ -360,10 +439,11 @@ export const generatePreview = async (
     // Validate row
     const validation = await validateRow(mappedRow, i + 1, publishers);
 
-    // Calculate displayed price
-    const basePrice = parseFloat(mappedRow.base_price) || 0;
+    // Calculate displayed price with rounded base price
+    const originalBasePrice = parseFloat(mappedRow.base_price) || 0;
+    const roundedBasePrice = autoRoundPrice(originalBasePrice);
     const percentage = clientPercentage || 25; // Default 25% markup
-    const displayedPrice = basePrice + (basePrice * percentage / 100);
+    const displayedPrice = roundedBasePrice + (roundedBasePrice * percentage / 100);
 
     const previewRow: PreviewRow = {
       rowIndex: i + 1,
@@ -375,7 +455,7 @@ export const generatePreview = async (
       tat: mappedRow.tat || '',
       category: mappedRow.category || '',
       status: mappedRow.status || 'ACTIVE',
-      base_price: basePrice,
+      base_price: roundedBasePrice,
       country: mappedRow.country || '',
       publisher: mappedRow.publisher || '',
       site_language: mappedRow.site_language || 'en',
@@ -478,20 +558,22 @@ export const saveBulkData = async (
  * Generate CSV template for download with comprehensive demo data
  */
 export const generateCSVTemplate = (): string => {
-  // Use the exact column order that matches the CSV template file
-  const headers = ['Site URL', 'Domain Authority (DA)', 'Domain Rating (DR)', 'Ahrefs Traffic', 'Spam Score (SS)', 'Turnaround Time (TAT)', 'Category', 'Status', 'Base Price', 'Country', 'Publisher', 'Site Language'];
+  console.log('🔥 GENERATING CSV TEMPLATE WITH UPDATED FORMAT');
+  // Use the exact column order that matches the updated CSV template file
+  const headers = ['Site URL', 'Publisher Email', 'DA', 'DR', 'Traffic', 'SS', 'Category', 'Country', 'Language', 'TAT', 'Base Price', 'Status'];
+  console.log('🔥 Headers:', headers);
   
   const sampleRows = [
-    ['https://techcrunch.com', '95', '94', '15000000', '2', '2-3 days', 'TECHNOLOGY_GADGETS', 'ACTIVE', '500', 'US', 'TechCrunch Editor', 'en'],
-    ['https://forbes.com/business', '92', '93', '12000000', '1', '3-5 days', 'BUSINESS_ENTREPRENEURSHIP', 'ACTIVE', '450', 'US', 'Forbes Business Team', 'en'],
-    ['https://entrepreneur.com', '88', '87', '8500000', '3', '1-2 days', 'BUSINESS_ENTREPRENEURSHIP', 'ACTIVE', '400', 'US', 'Entrepreneur Magazine', 'en'],
-    ['https://mashable.com', '85', '86', '7200000', '2', '2-4 days', 'TECHNOLOGY_GADGETS', 'ACTIVE', '350', 'US', 'Mashable Tech', 'en'],
-    ['https://businessinsider.com', '90', '89', '9800000', '1', '3-4 days', 'BUSINESS_ENTREPRENEURSHIP', 'ACTIVE', '425', 'US', 'Business Insider', 'en'],
-    ['https://healthline.com', '82', '83', '6500000', '1', '5-7 days', 'HEALTH_FITNESS', 'ACTIVE', '300', 'US', 'Healthline Editorial', 'en'],
-    ['https://investopedia.com', '88', '87', '3800000', '1', '3-5 days', 'FINANCE_INVESTMENT', 'ACTIVE', '375', 'US', 'Investopedia Finance', 'en'],
-    ['https://cnn.com/travel', '87', '88', '8900000', '2', '3-5 days', 'TRAVEL_TOURISM', 'ACTIVE', '400', 'US', 'CNN Travel', 'en'],
-    ['https://foodnetwork.com', '81', '80', '3600000', '1', '4-6 days', 'FOOD_NUTRITION', 'ACTIVE', '250', 'US', 'Food Network', 'en'],
-    ['https://vogue.com', '89', '88', '4200000', '1', '7-10 days', 'FASHION_BEAUTY', 'ACTIVE', '450', 'US', 'Vogue Fashion', 'en']
+    ['https://techcrunch.com', 'editor@techcrunch.com', '95', '94', '15000000', '2', 'TECHNOLOGY_GADGETS', 'US', 'en', '2-3 days', '500', 'ACTIVE'],
+    ['https://forbes.com/business', 'business@forbes.com', '92', '93', '12000000', '1', 'BUSINESS_ENTREPRENEURSHIP', 'US', 'en', '3-5 days', '450', 'ACTIVE'],
+    ['https://entrepreneur.com', 'editor@entrepreneur.com', '88', '87', '8500000', '3', 'BUSINESS_ENTREPRENEURSHIP', 'US', 'en', '1-2 days', '400', 'ACTIVE'],
+    ['https://mashable.com', 'tech@mashable.com', '85', '86', '7200000', '2', 'TECHNOLOGY_GADGETS', 'US', 'en', '2-4 days', '350', 'ACTIVE'],
+    ['https://businessinsider.com', 'editor@businessinsider.com', '90', '89', '9800000', '1', 'BUSINESS_ENTREPRENEURSHIP', 'US', 'en', '3-4 days', '425', 'ACTIVE'],
+    ['https://healthline.com', 'editorial@healthline.com', '82', '83', '6500000', '1', 'HEALTH_FITNESS', 'US', 'en', '5-7 days', '300', 'ACTIVE'],
+    ['https://investopedia.com', 'finance@investopedia.com', '88', '87', '3800000', '1', 'FINANCE_INVESTMENT', 'US', 'en', '3-5 days', '375', 'ACTIVE'],
+    ['https://cnn.com/travel', 'travel@cnn.com', '87', '88', '8900000', '2', 'TRAVEL_TOURISM', 'US', 'en', '3-5 days', '400', 'ACTIVE'],
+    ['https://foodnetwork.com', 'editor@foodnetwork.com', '81', '80', '3600000', '1', 'FOOD_NUTRITION', 'US', 'en', '4-6 days', '250', 'ACTIVE'],
+    ['https://vogue.com', 'fashion@vogue.com', '89', '88', '4200000', '1', 'FASHION_BEAUTY', 'US', 'en', '7-10 days', '450', 'ACTIVE']
   ];
 
   const csvContent = [headers.join(',')];

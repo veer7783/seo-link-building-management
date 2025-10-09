@@ -101,18 +101,18 @@ const FileUploadStep: React.FC<FileUploadStepProps> = ({
   };
 
   const handleDownloadCSVTemplate = () => {
-    // Create CSV content with demo data matching the exact CSV template format
-    const csvContent = `Site URL,Domain Authority (DA),Domain Rating (DR),Ahrefs Traffic,Spam Score (SS),Turnaround Time (TAT),Category,Status,Base Price,Country,Publisher,Site Language
-https://techcrunch.com,95,94,15000000,2,2-3 days,TECHNOLOGY_GADGETS,ACTIVE,500,US,TechCrunch Editor,en
-https://forbes.com/business,92,93,12000000,1,3-5 days,BUSINESS_ENTREPRENEURSHIP,ACTIVE,450,US,Forbes Business Team,en
-https://entrepreneur.com,88,87,8500000,3,1-2 days,BUSINESS_ENTREPRENEURSHIP,ACTIVE,400,US,Entrepreneur Magazine,en
-https://mashable.com,85,86,7200000,2,2-4 days,TECHNOLOGY_GADGETS,ACTIVE,350,US,Mashable Tech,en
-https://businessinsider.com,90,89,9800000,1,3-4 days,BUSINESS_ENTREPRENEURSHIP,ACTIVE,425,US,Business Insider,en
-https://healthline.com,82,83,6500000,1,5-7 days,HEALTH_FITNESS,ACTIVE,300,US,Healthline Editorial,en
-https://investopedia.com,88,87,3800000,1,3-5 days,FINANCE_INVESTMENT,ACTIVE,375,US,Investopedia Finance,en
-https://cnn.com/travel,87,88,8900000,2,3-5 days,TRAVEL_TOURISM,ACTIVE,400,US,CNN Travel,en
-https://foodnetwork.com,81,80,3600000,1,4-6 days,FOOD_NUTRITION,ACTIVE,250,US,Food Network,en
-https://vogue.com,89,88,4200000,1,7-10 days,FASHION_BEAUTY,ACTIVE,450,US,Vogue Fashion,en`;
+    // Create CSV content with demo data matching the original column order, just replacing publisher names with emails
+    const csvContent = `Site URL,Domain Authority (DA),Domain Rating (DR),Ahrefs Traffic,Spam Score (SS),Turnaround Time (TAT),Category,Status,Base Price,Country,Publisher Email,Site Language
+https://techcrunch.com,95,94,15000000,2,2-3 days,TECHNOLOGY_GADGETS,ACTIVE,500,US,editor@techcrunch.com,en
+https://forbes.com/business,92,93,12000000,1,3-5 days,BUSINESS_ENTREPRENEURSHIP,ACTIVE,450,US,business@forbes.com,en
+https://entrepreneur.com,88,87,8500000,3,1-2 days,BUSINESS_ENTREPRENEURSHIP,ACTIVE,400,US,editor@entrepreneur.com,en
+https://mashable.com,85,86,7200000,2,2-4 days,TECHNOLOGY_GADGETS,ACTIVE,350,US,tech@mashable.com,en
+https://businessinsider.com,90,89,9800000,1,3-4 days,BUSINESS_ENTREPRENEURSHIP,ACTIVE,425,US,editor@businessinsider.com,en
+https://healthline.com,82,83,6500000,1,5-7 days,HEALTH_FITNESS,ACTIVE,300,US,editorial@healthline.com,en
+https://investopedia.com,88,87,3800000,1,3-5 days,FINANCE_INVESTMENT,ACTIVE,375,US,finance@investopedia.com,en
+https://cnn.com/travel,87,88,8900000,2,3-5 days,TRAVEL_TOURISM,ACTIVE,400,US,travel@cnn.com,en
+https://foodnetwork.com,81,80,3600000,1,4-6 days,FOOD_NUTRITION,ACTIVE,250,US,editor@foodnetwork.com,en
+https://vogue.com,89,88,4200000,1,7-10 days,FASHION_BEAUTY,ACTIVE,450,US,fashion@vogue.com,en`;
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -319,8 +319,9 @@ https://vogue.com,89,88,4200000,1,7-10 days,FASHION_BEAUTY,ACTIVE,450,US,Vogue F
             <ul style={{ margin: 0, paddingLeft: '20px' }}>
               <li><strong>Download the demo template above</strong> to see the correct format with sample data</li>
               <li>First row should contain column headers</li>
-              <li><strong>Required columns:</strong> All fields except Publisher (which is optional)</li>
-              <li><strong>Column order:</strong> Site URL, Publisher, DA, DR, Traffic, SS, Category, Country, Language, TAT, Base Price, Status</li>
+              <li><strong>Required columns:</strong> Site URL, Publisher Email, Category, Country, Language, TAT, Base Price</li>
+              <li><strong>Optional columns:</strong> DA, DR, Traffic, SS, Status (can be left blank)</li>
+              <li><strong>Column order:</strong> Site URL, DA, DR, Traffic, SS, TAT, Category, Status, Base Price, Country, Publisher Email, Site Language</li>
               <li>Replace the demo data with your own guest blog sites</li>
               <li>Use exact column names from template for auto-mapping</li>
               <li>Use valid categories: TECHNOLOGY_GADGETS, BUSINESS_ENTREPRENEURSHIP, etc.</li>
